@@ -26,6 +26,8 @@ class Grid:
         self.solid = blob[off:off + n]
         off += n
         self.ground = struct.unpack_from(f"<{n}H", blob, off)
+        off += 2 * n
+        self.cover = blob[off:off + n] if len(blob) >= off + n else bytes(n)
 
     # --- coordinates
     def cell_of(self, x, y):
@@ -50,6 +52,31 @@ class Grid:
     def solid_at(self, x, y):
         i, j = self.cell_of(x, y)
         return self.solid[j * self.gx + i]
+
+    def best_cover(self, cx, cy, r, pref, inside):
+        """free cell within r m of (cx, cy) with the most cover, tie-broken by distance to pref;
+        inside(x, y) -> bool restricts candidates"""
+        c = self.cell
+        i0, j0 = self.cell_of(cx - r, cy - r)
+        i1, j1 = self.cell_of(cx + r, cy + r)
+        best = None
+        gx = self.gx
+        st = 2 if r <= 60 else 4
+        for j in range(j0, j1 + 1, st):
+            for i in range(i0, i1 + 1, st):
+                k = j * gx + i
+                if self.blocked[k]:
+                    continue
+                sc = self.cover[k]
+                if sc < 4:
+                    continue
+                x, y = self.minx + (i + 0.5) * c, self.miny + (j + 0.5) * c
+                if (x - cx) ** 2 + (y - cy) ** 2 > r * r or not inside(x, y):
+                    continue
+                v = sc - 0.04 * math.hypot(x - pref[0], y - pref[1])
+                if best is None or v > best[0]:
+                    best = (v, x, y, sc)
+        return best
 
     def nearest_free(self, i, j, maxr=30):
         if self.free(i, j):

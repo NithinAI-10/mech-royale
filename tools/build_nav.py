@@ -99,10 +99,24 @@ for dj in range(-2, 3):
         if dj * dj + di * di <= 4:
             infl |= np.roll(np.roll(blocked, dj, 0), di, 1)
 
+# cover score per cell: how many of 16 directions hit a tall solid (>= 8 m) within 14 m
+tall = solid >= 8.0
+cover = np.zeros((GY, GX), dtype=np.uint8)
+for k in range(16):
+    a = 2 * np.pi * k / 16
+    hit = np.zeros((GY, GX), dtype=bool)
+    for r in (3.0, 5.0, 7.0, 9.0, 11.0, 14.0):
+        di = int(round(np.cos(a) * r / CELL))
+        dj = int(round(np.sin(a) * r / CELL))
+        hit |= np.roll(np.roll(tall, -dj, 0), -di, 1)
+    cover += hit.astype(np.uint8)
+cover[infl] = 0
+
 print("grid", GX, GY, "raw blocked", blocked.mean().round(3), "inflated", infl.mean().round(3))
 hdr = np.array([GX, GY], dtype="<i4").tobytes() + np.array([minx, miny, CELL], dtype="<f8").tobytes()
 gq = np.clip(np.round(G * 10) + 200, 0, 65535).astype("<u2")
-blob = hdr + infl.astype(np.uint8).tobytes() + np.clip(solid, 0, 255).astype(np.uint8).tobytes() + gq.tobytes()
+blob = hdr + infl.astype(np.uint8).tobytes() + np.clip(solid, 0, 255).astype(np.uint8).tobytes() + gq.tobytes() + cover.tobytes()
+print("cover>=6:", (cover >= 6).sum(), "cover>=9:", (cover >= 9).sum())
 open(OUT, "wb").write(zlib.compress(blob, 9))
 print("wrote", OUT, len(zlib.compress(blob, 9)))
 # preview image for sanity

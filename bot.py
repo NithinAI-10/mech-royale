@@ -63,6 +63,11 @@ class Bot:
         self.blacklist = {}  # loot id -> until time
         self.crate_target = None
         self.t = 0.0
+        self.hide = None
+        self.hide_key = None
+        self.hide_time = -99
+        self.evade = None
+        self.evade_t = -99
 
     # ------------------------------------------------------------ zone
     def zone_target(self, obs, pos):
@@ -99,6 +104,31 @@ class Bot:
         else:
             urg = 1.0 if before < travel * 2.2 + 12 else (0.5 if before < travel * 4 + 25 else 0.3)
         return tgt, urg
+
+    def hide_spot(self, obs, pos, zone_tgt, force=False):
+        """best covered spot inside the next circle, near where we would go anyway"""
+        z = obs["zone"]
+        nc, nr = z["next_center"], z["next_radius"]
+        key = (round(nc[0]), round(nc[1]), round(nr))
+        now = obs["t"]
+        if not force and self.hide is not None and key == self.hide_key and now - self.hide_time < 45:
+            return self.hide
+        margin = max(6.0, min(0.45 * nr, 45.0))
+        lim = max(nr - margin, 0.0)
+
+        def inside(x, y):
+            return (x - nc[0]) ** 2 + (y - nc[1]) ** 2 <= lim * lim
+
+        base = zone_tgt if zone_tgt is not None else pos[:2]
+        found = None
+        for r in (60, 110):
+            found = self.grid.best_cover(base[0], base[1], min(r, lim + 5) if lim > 5 else 5, pos, inside)
+            if found:
+                break
+        self.hide = [found[1], found[2]] if found else (list(zone_tgt) if zone_tgt else None)
+        self.hide_key = key
+        self.hide_time = now
+        return self.hide
 
     # ------------------------------------------------------------ navigation
     def nav_dir(self, pos, goal, now):
@@ -238,6 +268,10 @@ class Bot:
         # --- movement goal
         zone_tgt, urg = self.zone_target(obs, pos)
         goal = zone_tgt
+        if not late:
+            hs = self.hide_spot(obs, pos, zone_tgt)
+            if hs is not None:
+                goal = hs if d2(hs, pos) > 2.5 else None
         quiet = urg < 0.55 and not late
         take = None
         threats_near = [m for m in mechs if m["_d"] < 90]
@@ -271,12 +305,23 @@ class Bot:
                 cubes = [c for c in obs.get("cubes", []) if d2(c["pos"], pos) < 45 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
                 if cubes:
                     goal = min(cubes, key=lambda c: d2(c["pos"], pos))["pos"][:2]
-                elif now < 130 and hp_frac > 0.7:
-                    crates = [c for c in obs.get("crates", []) if d2(c["pos"], pos) < 55 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
-                    if crates:
-                        self.crate_target = min(crates, key=lambda c: d2(c["pos"], pos))
+
         if take is not None:
             act["take"] = take
+
+        # hit by something we cannot see: break line of sight toward cover, away from the shot
+        if target is None and npc_target is None and self.last_hit_bearing is not None and now - self.last_hit_time < 3.0:
+            if getattr(self, "evade_t", -99) < self.last_hit_time - 0.01 or self.evade is None:
+                bx, by_ = math.cos(self.last_hit_bearing), math.sin(self.last_hit_bearing)
+                pref = [pos[0] - 30 * bx, pos[1] - 30 * by_]
+                cz = obs["zone"]
+                cc_, cr_ = cz["center"], cz["radius"]
+                found = self.grid.best_cover(pos[0], pos[1], 35, pref,
+                                             lambda x, y: (x - cc_[0]) ** 2 + (y - cc_[1]) ** 2 <= (cr_ - 5) ** 2)
+                self.evade = [found[1], found[2]] if found else pref
+                self.evade_t = now
+            goal = self.evade
+            quiet = False
 
         # --- fight / avoid adjustments to movement
         move = self.nav_dir(pos, goal, now) if goal else None
@@ -293,7 +338,7 @@ class Bot:
             aim = [yaw, max(min(pitch, 1.2), -0.65)]
             ay, ap = me["aim"]
             err = abs(wrap(ay - yaw))
-            tol = math.atan2(2.2 if foe["kind"] == "mech" else 1.4, max(hd, 1)) + 0.015
+            tol = math.atan2(2.8 if foe["kind"] == "mech" else 1.5, max(hd, 1)) + 0.03
             gun = me["weapons"][0]
             if gun and gun["kind"] == "gun" and err < tol + 0.01 and fd < gun["stats"]["range"] * 0.95 and gun.get("reload", 0) == 0:
                 fire[0] = True
@@ -363,7 +408,7 @@ class Bot:
                 aim = [self.last_hit_bearing, 0.0]
             elif self.heard and now - self.heard[0] < 2.5:
                 aim = [self.heard[1], 0.0]
-            elif self.crate_target is not None and now < 130:
+            elif False:
                 c = self.crate_target
                 cd = d2(c["pos"], pos)
                 ay = math.atan2(c["pos"][1] - pos[1], c["pos"][0] - pos[0])
