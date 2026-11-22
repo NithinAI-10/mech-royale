@@ -12,8 +12,9 @@ from nav import Grid, Search
 
 TAU = 2 * math.pi
 UPGRADE_PRIORITY = [
+    "sensors",
     "plating", "armor", "gun_damage", "laser_damage", "nanites", "lightning_efficiency", "gun_rate",
-    "gun_mag", "lightning_range", "laser_charge", "servos", "gun_velocity", "gyros", "sensors",
+    "gun_mag", "lightning_range", "laser_charge", "servos", "gun_velocity", "gyros",
     "reactor", "laser_pierce", "lightning_chain", "capacitor", "jets", "mortar_reload",
     "mortar_splash", "mortar_velocity",
 ]
