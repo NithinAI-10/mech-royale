@@ -8,10 +8,8 @@ A `mechfight/1` bot that plays for placement (16 − place per match).
   smooths the path by line of sight. Stuck detection jumps and jets.
 - **Zone:** heads for a point inside the *next* circle early, quietly (below the step-sound speed),
   and hurries only when the shrink is close or it is outside.
-- **Combat:** fights only attackers, mechs within 45 m, weak mechs nearby, and everyone at the end.
-  Faces attackers (front armor), leads gun shots, uses lightning/laser when held, strafes, and
-  backs off when losing.
-- **Loot:** lightning and laser pickups, cubes and safe crates early; upgrades favour HP, armor and regen.
+- **Encounters:** uses visible mech HP and distance to select a fallback when no immediate priority applies. It moves toward cube drops from eliminations and uses available boost for longer approaches.
+- **Loot and upgrades:** values clusters of cubes and equipment by distance, remembers loot for seven seconds, and takes equipment within pickup range. Plating, gun damage and magazine size are the first upgrade choices when offered.
 
 `tools/sim.py` is a small kinematic simulator used to test navigation and zone play.
 

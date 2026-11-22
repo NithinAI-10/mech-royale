@@ -1,10 +1,7 @@
-"""Survivor: a mechfight/1 bot that plays for placement.
+"""Mech Royale placement bot.
 
-Placement is all that scores, so the bot avoids fights it does not have to take:
-  - keeps inside the next zone circle early, moving quietly (silent below step speed),
-  - grabs nearby lightning/laser, cubes and safe crates for HP and upgrades,
-  - faces whoever shoots it (front armor), returns fire with lead, backs off when losing,
-  - finishes weak enemies nearby, and fights for real only at the end.
+Collect power cubes in clusters and fill the second equipment slot along the
+way. Hold a short memory of visible loot so camera turns do not reset the route.
 """
 import math
 import random
@@ -15,10 +12,10 @@ from nav import Grid, Search
 
 TAU = 2 * math.pi
 UPGRADE_PRIORITY = [
-    "plating", "armor", "nanites", "lightning_efficiency", "laser_charge", "servos", "gun_damage",
-    "gun_rate", "sensors", "laser_damage", "lightning_range", "gyros", "gun_mag", "lightning_chain",
-    "capacitor", "reactor", "jets", "gun_velocity", "laser_pierce", "mortar_reload",
-    "mortar_velocity", "mortar_splash",
+    "plating", "gun_damage", "gun_mag", "armor", "gun_rate", "lightning_range",
+    "laser_damage", "lightning_efficiency", "servos", "nanites", "laser_charge",
+    "gun_velocity", "gyros", "sensors", "reactor", "laser_pierce", "lightning_chain",
+    "capacitor", "jets", "mortar_reload", "mortar_velocity", "mortar_splash",
 ]
 GOOD_WEAPONS = {"lightning": 3, "laser": 2}
 
@@ -63,6 +60,7 @@ class Bot:
         self.blacklist = {}  # loot id -> until time
         self.crate_target = None
         self.t = 0.0
+        self.loot_memory = {}
 
     # ------------------------------------------------------------ zone
     def zone_target(self, obs, pos):
@@ -128,6 +126,44 @@ class Bot:
         return best
 
     # ------------------------------------------------------------ navigation
+    def reward_goal(self, obs, pos):
+        """Value the reachable cube stacks and equipment using travel time."""
+        slot = obs["self"]["weapons"][1]
+        rank = GOOD_WEAPONS.get(slot["kind"], 0) if slot else 0
+        # Items leave the observation when the camera turns. Keep a short
+        # memory, and clear a remembered item when its pickup spot is empty.
+        now = obs["t"]
+        visible = {item["id"] for item in obs["pickups"] + obs["cubes"]}
+        for collection in ("pickups", "cubes"):
+            for item in obs[collection]:
+                self.loot_memory[item["id"]] = (item, now, collection)
+        self.loot_memory = {
+            key: entry for key, entry in self.loot_memory.items()
+            if now - entry[1] < 7 and (key in visible or d2(entry[0]["pos"], pos) > 7)
+        }
+        pickups = [item for item, _, kind in self.loot_memory.values() if kind == "pickups"]
+        cubes = [item for item, _, kind in self.loot_memory.values() if kind == "cubes"]
+        items = []
+        for p in pickups:
+            value = GOOD_WEAPONS.get(p["kind"], 0) - rank
+            if value > 0 and self.blacklist.get(p["id"], 0) <= obs["t"]:
+                items.append((p, value + (2 if rank == 0 else 0), True))
+        for c in cubes:
+            stack = sum(d2(c["pos"], o["pos"]) <= 8 for o in cubes)
+            items.append((c, 1 + min(stack, 5), False))
+        best = None
+        best_value = 0
+        for item, value, equip in items:
+            xy = item["pos"]
+            distance = d2(pos, xy)
+            if distance > 95 or abs(xy[2] - self.grid.ground_at(*xy[:2])) > 3:
+                continue
+            score = value / (10 + distance)
+            if score > best_value and self.grid.los(pos[0], pos[1], *xy[:2]):
+                best_value = score
+                best = (xy, item["id"] if equip else None, distance)
+        return best
+
     def nav_dir(self, pos, goal, now):
         g = self.grid
         if goal is None:
@@ -255,6 +291,8 @@ class Bot:
             if late and m["_d"] < 170:
                 target = m
                 break
+        if target is None and mechs:
+            target = min(mechs, key=lambda m: m["_d"] + 0.055 * m.get("hp", 1400))
         npc_target = None
         if target is None and not mechs:
             for n in npcs:
@@ -376,6 +414,14 @@ class Bot:
                 if fd < 18:
                     mx_ -= 0.5 * math.cos(by)
                     my_ -= 0.5 * math.sin(by)
+            # Approach the game reward before the avatar despawns; the
+            # two guaranteed bonus cubes appear at its last position.
+            if foe["kind"] == "mech" and fd > 9:
+                approach = self.nav_dir(pos, foe["pos"][:2], now)
+                if approach:
+                    boost = me["energy"] > 50 and fd > 35
+                    mx_ = approach[0] + 0.45 * sx
+                    my_ = approach[1] + 0.45 * sy
             if move is not None and urg >= 0.9:
                 mx_, my_ = 0.6 * move[0] + 0.5 * mx_, 0.6 * move[1] + 0.5 * my_
             move = (mx_, my_)
@@ -423,6 +469,17 @@ class Bot:
         if foe is None and self.last_hit_bearing is not None and now - self.last_hit_time < 1.5:
             aim = [self.last_hit_bearing, 0.0]
             quiet = False
+
+        reward = self.reward_goal(obs, pos) if urg < 0.9 else None
+        if reward:
+            xy, equip_id, distance = reward
+            if foe is None or distance < min(42, foe["_d"] * 0.6 + 8):
+                move = self.nav_dir(pos, xy[:2], now)
+                quiet = False
+            if equip_id is not None and distance < self.reach * 0.9:
+                act["take"] = equip_id
+                if me["weapons"][1]:
+                    act["drop"] = 1
 
         # --- stuck handling
         hv = math.hypot(me["vel"][0], me["vel"][1])
