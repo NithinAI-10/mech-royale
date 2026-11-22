@@ -57,6 +57,7 @@ class Bot:
         self.last_hit_bearing = None
         self.last_hit_time = -99
         self.strafe = 1 if self.slot % 2 else -1
+        self.mortar_heard = None
         self.strafe_t = 0
         self.scan_yaw = None
         self.heard = None  # (time, bearing)
@@ -303,6 +304,8 @@ class Bot:
             elif ev["type"] == "take_failed":
                 self.blacklist[ev["id"]] = now + 20
         for s in obs.get("sounds", []):
+            if s["kind"] == "mortar":
+                self.mortar_heard = (now - s.get("age", 0), s["bearing"])
             if s["kind"] in ("gun", "laser", "lightning", "mortar", "laser_charge", "step", "boost", "jet") and s["dist"] != "far":
                 self.heard = (now, s["bearing"])
         self.attackers = {k: v for k, v in self.attackers.items() if now - v[0] < 6}
@@ -475,7 +478,10 @@ class Bot:
             quiet = False
         else:
             # not fighting: keep threats in view, steer away from them
-            if threats_near or mechs:
+            if self.mortar_heard is not None and now - self.mortar_heard[0] < 2.5 and not mechs:
+                # a shell is in the air: face its launcher so the dodge sees it for the whole flight
+                aim = [self.mortar_heard[1], 0.0]
+            elif threats_near or mechs:
                 m0 = mechs[0]
                 by = math.atan2(m0["pos"][1] - pos[1], m0["pos"][0] - pos[0])
                 aim = [by, 0.0]
