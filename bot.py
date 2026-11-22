@@ -12,12 +12,15 @@ from nav import Grid, Search
 
 TAU = 2 * math.pi
 UPGRADE_PRIORITY = [
-    "plating", "gun_damage", "gun_mag", "armor", "gun_rate", "lightning_range",
-    "laser_damage", "lightning_efficiency", "servos", "nanites", "laser_charge",
-    "gun_velocity", "gyros", "sensors", "reactor", "laser_pierce", "lightning_chain",
-    "capacitor", "jets", "mortar_reload", "mortar_velocity", "mortar_splash",
+    "plating", "armor", "gun_damage", "laser_damage", "nanites", "lightning_efficiency", "gun_rate",
+    "gun_mag", "lightning_range", "laser_charge", "servos", "gun_velocity", "gyros", "sensors",
+    "reactor", "laser_pierce", "lightning_chain", "capacitor", "jets", "mortar_reload",
+    "mortar_splash", "mortar_velocity",
 ]
 GOOD_WEAPONS = {"lightning": 3, "laser": 2}
+FARM_RANGE = 80  # m: drones worth walking to
+FARM_HP = 0.75  # farm crates and drones only above this health fraction
+REST_BELOW = 0.75  # stop and regenerate below this when nothing is in view
 
 
 def wrap(a):
@@ -296,7 +299,8 @@ class Bot:
         npc_target = None
         if target is None and not mechs:
             for n in npcs:
-                if self.attackers.get(n["id"]) or (n["_d"] < 40 and hp_frac > 0.6):
+                # practice: house bots hunt us as a squad, so drones (2 cubes each) are free power
+                if self.attackers.get(n["id"]) or (n["_d"] < FARM_RANGE and hp_frac > FARM_HP):
                     npc_target = n
                     break
 
@@ -343,13 +347,19 @@ class Bot:
                 cubes = [c for c in obs.get("cubes", []) if d2(c["pos"], pos) < 45 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
                 if cubes:
                     goal = min(cubes, key=lambda c: d2(c["pos"], pos))["pos"][:2]
-                elif now < 130 and hp_frac > 0.7:
+                elif hp_frac > FARM_HP:
                     crates = [c for c in obs.get("crates", []) if d2(c["pos"], pos) < 55 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
                     if crates:
                         self.crate_target = min(crates, key=lambda c: d2(c["pos"], pos))
         if take is not None:
             act["take"] = take
 
+        # rest to regenerate (needs 5 s without dealing or taking damage) when hurt and alone
+        resting = (target is None and npc_target is None and not mechs and hp_frac < REST_BELOW
+                   and me["in_zone"] and urg < 0.9 and now - self.last_hit_time > 1.0)
+        if resting:
+            goal = None
+            self.crate_target = None
         # --- fight / avoid adjustments to movement
         move = self.nav_dir(pos, goal, now) if goal else None
         speed = 1.0
@@ -443,7 +453,7 @@ class Bot:
                 aim = [self.last_hit_bearing, 0.0]
             elif self.heard and now - self.heard[0] < 2.5:
                 aim = [self.heard[1], 0.0]
-            elif self.crate_target is not None and now < 130:
+            elif self.crate_target is not None and hp_frac > FARM_HP - 0.1:
                 c = self.crate_target
                 cd = d2(c["pos"], pos)
                 ay = math.atan2(c["pos"][1] - pos[1], c["pos"][0] - pos[0])
