@@ -130,6 +130,24 @@ class Bot:
         self.hide_time = now
         return self.hide
 
+    def cover_from(self, obs, pos, foe, now):
+        """a nearby covered spot the foe cannot see, preferring the side away from it"""
+        if getattr(self, "hidefrom_t", -99) > now - 2.0 and getattr(self, "hidefrom_id", None) == foe["id"]:
+            return self.hidefrom
+        by = math.atan2(foe["pos"][1] - pos[1], foe["pos"][0] - pos[0])
+        pref = [pos[0] - 25 * math.cos(by), pos[1] - 25 * math.sin(by)]
+        cz = obs["zone"]
+        cc_, cr_ = cz["center"], cz["radius"]
+        fx, fy, fz = foe["pos"]
+        g = self.grid
+        found = g.best_cover(pos[0], pos[1], 35, pref,
+                             lambda x, y: (x - cc_[0]) ** 2 + (y - cc_[1]) ** 2 <= (cr_ - 5) ** 2
+                             and not g.sight(fx, fy, fz + 8, x, y, g.ground_at(x, y) + 6))
+        self.hidefrom = [found[1], found[2]] if found else pref
+        self.hidefrom_t = now
+        self.hidefrom_id = foe["id"]
+        return self.hidefrom
+
     # ------------------------------------------------------------ navigation
     def nav_dir(self, pos, goal, now):
         g = self.grid
@@ -268,7 +286,12 @@ class Bot:
         # --- movement goal
         zone_tgt, urg = self.zone_target(obs, pos)
         goal = zone_tgt
-        if not late:
+        if not late and now < 45 and urg < 0.9 and zone_tgt is None:
+            if getattr(self, "spawn_cover", None) is None:
+                f = self.grid.best_cover(pos[0], pos[1], 40, pos, lambda x, y: True)
+                self.spawn_cover = [f[1], f[2]] if f else list(pos[:2])
+            goal = self.spawn_cover if d2(self.spawn_cover, pos) > 2.5 else None
+        elif not late:
             hs = self.hide_spot(obs, pos, zone_tgt)
             if hs is not None:
                 goal = hs if d2(hs, pos) > 2.5 else None
@@ -376,7 +399,14 @@ class Bot:
             sx, sy = math.cos(by + self.strafe * math.pi / 2), math.sin(by + self.strafe * math.pi / 2)
             foe_hp = foe.get("hp", 1400) / max(foe.get("max_hp", 1400), 1)
             losing = foe["kind"] == "mech" and hp_frac < 0.4 and foe_hp > hp_frac and not late
-            if losing:
+            have_laser = bool(w1 and w1["kind"] == "laser")
+            duel = (fd < 55) or late or (have_laser and foe_hp < 0.5 and hp_frac > 0.5) or (foe_hp < 0.25 and hp_frac > 0.4)
+            if foe["kind"] == "mech" and not duel:
+                cov = self.cover_from(obs, pos, foe, now)
+                mv = self.nav_dir(pos, cov, now)
+                mx_, my_ = mv if mv else (0.0, 0.0)
+                boost = me["energy"] > 30 and d2(cov, pos) > 8
+            elif losing:
                 bx, by2 = -math.cos(by), -math.sin(by)
                 mx_, my_ = 0.8 * bx + 0.4 * sx, 0.8 * by2 + 0.4 * sy
                 boost = me["energy"] > 25
