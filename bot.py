@@ -466,7 +466,7 @@ class Bot:
             if foe["kind"] == "mech" and fd > 9:
                 approach = self.nav_dir(pos, foe["pos"][:2], now)
                 if approach:
-                    boost = me["energy"] > 50 and fd > 35
+                    boost = me["energy"] > 75 and fd > 35  # keep a reserve for shell dodges
                     mx_ = approach[0] + 0.45 * sx
                     my_ = approach[1] + 0.45 * sy
             if move is not None and urg >= 0.9:
