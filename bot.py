@@ -159,7 +159,7 @@ class Bot:
         for item, value, equip in items:
             xy = item["pos"]
             distance = d2(pos, xy)
-            if distance > 95 or abs(xy[2] - self.grid.ground_at(*xy[:2])) > 3:
+            if distance > (150 if equip else 95) or abs(xy[2] - self.grid.ground_at(*xy[:2])) > 3:
                 continue
             score = value / (10 + distance)
             if score > best_value and self.grid.los(pos[0], pos[1], *xy[:2]):
@@ -370,7 +370,7 @@ class Bot:
                 if p["pos"][2] > self.grid.ground_at(p["pos"][0], p["pos"][1]) + 3:
                     continue  # on a roof
                 dd = d2(p["pos"], pos)
-                if dd < 80:
+                if dd < (150 if p["kind"] == "lightning" or slot1 is None else 100):
                     cand.append((dd - 20 * GOOD_WEAPONS[p["kind"]], dd, p))
             if cand:
                 cand.sort(key=lambda c: c[0])
