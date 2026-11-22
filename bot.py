@@ -100,6 +100,33 @@ class Bot:
             urg = 1.0 if before < travel * 2.2 + 12 else (0.5 if before < travel * 4 + 25 else 0.3)
         return tgt, urg
 
+    def nearby_drop(self, obs, pos, mechs):
+        """Choose a short, unobstructed detour to an uncontested supply ring."""
+        zone = obs["zone"]
+        quiet_speed = min(self.walk, self.step_speed - 0.6)
+        best = None
+        best_time = math.inf
+        for drop in obs.get("drops", []):
+            xy = drop["pos"][:2]
+            radius = drop["radius"]
+            if drop["holder"] not in (None, self.slot):
+                continue
+            if d2(xy, zone["next_center"]) + radius > zone["next_radius"]:
+                continue
+            if any(d2(m["pos"], xy) < 90 for m in mechs):
+                continue
+            distance = d2(pos, xy)
+            travel = max(0.0, distance - radius / 2) / max(quiet_speed, 0.1)
+            remaining = drop["capture_s"] - (drop["progress"] if drop["holder"] == self.slot else 0)
+            finish = max(drop["lands_in"], travel) + remaining
+            if finish > 12 or finish >= best_time or obs["t"] + finish >= zone["shrink_end"]:
+                continue
+            if not self.grid.los(pos[0], pos[1], *xy):
+                continue
+            best_time = finish
+            best = drop
+        return best
+
     # ------------------------------------------------------------ navigation
     def nav_dir(self, pos, goal, now):
         g = self.grid
@@ -243,7 +270,14 @@ class Bot:
         threats_near = [m for m in mechs if m["_d"] < 90]
 
         # loot: weapons, cubes, crates (only when no threats around)
-        if target is None and not threats_near and urg < 0.9:
+        can_loot = target is None and not threats_near and urg < 0.9
+        supply = None
+        if can_loot and npc_target is None and now - self.last_hit_time > 3:
+            supply = self.nearby_drop(obs, pos, mechs)
+        if supply is not None:
+            # Leave a margin for braking; the four-second timer needs us inside.
+            goal = supply["pos"][:2] if d2(pos, supply["pos"]) > supply["radius"] / 2 else None
+        elif can_loot:
             slot1 = me["weapons"][1]
             have = {w["kind"] for w in me["weapons"] if w}
             cand = []
