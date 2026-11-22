@@ -332,7 +332,10 @@ class Bot:
                 target = m
                 break
         if target is None and mechs:
-            target = min(mechs, key=lambda m: m["_d"] + 0.055 * m.get("hp", 1400))
+            # let hunters come to us: no long walks across open ground toward a mech that is not shooting us
+            near = [m for m in mechs if m["_d"] < 60 or late]
+            if near:
+                target = min(near, key=lambda m: m["_d"] + 0.055 * m.get("hp", 1400))
         npc_target = None
         if target is None and not mechs:
             for n in npcs:
