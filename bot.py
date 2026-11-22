@@ -11,12 +11,7 @@ import mechfight as mf
 from nav import Grid, Search
 
 TAU = 2 * math.pi
-UPGRADE_PRIORITY = [
-    "plating", "armor", "gun_damage", "laser_damage", "nanites", "lightning_efficiency", "gun_rate",
-    "gun_mag", "lightning_range", "laser_charge", "servos", "gun_velocity", "gyros", "sensors",
-    "reactor", "laser_pierce", "lightning_chain", "capacitor", "jets", "mortar_reload",
-    "mortar_splash", "mortar_velocity",
-]
+UPGRADE_PRIORITY = ["plating", "armor", "nanites", "gun_damage", "lightning_efficiency", "laser_damage", "gun_rate", "gun_mag", "lightning_range", "laser_charge", "servos", "gun_velocity", "gyros", "reactor", "laser_pierce", "lightning_chain", "capacitor", "jets", "sensors", "mortar_reload", "mortar_splash", "mortar_velocity"]
 GOOD_WEAPONS = {"lightning": 3, "laser": 2}
 FARM_RANGE = 120  # m: drones worth walking to
 FARM_HP = 0.6  # farm crates and drones only above this health fraction
