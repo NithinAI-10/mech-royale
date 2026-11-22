@@ -381,13 +381,15 @@ class Bot:
                     if slot1 is not None:
                         act["drop"] = 1
             else:
-                cubes = [c for c in obs.get("cubes", []) if d2(c["pos"], pos) < 45 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
+                cubes = [c for c in obs.get("cubes", []) if d2(c["pos"], pos) < 70 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
                 if cubes:
                     goal = min(cubes, key=lambda c: d2(c["pos"], pos))["pos"][:2]
                 elif hp_frac > FARM_HP:
-                    crates = [c for c in obs.get("crates", []) if d2(c["pos"], pos) < 55 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
+                    crates = [c for c in obs.get("crates", []) if d2(c["pos"], pos) < 90 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
                     if crates:
                         self.crate_target = min(crates, key=lambda c: d2(c["pos"], pos))
+                        if d2(self.crate_target["pos"], pos) > 50 and urg < 0.55:
+                            goal = self.crate_target["pos"][:2]
         if take is not None:
             act["take"] = take
 
