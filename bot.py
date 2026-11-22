@@ -128,6 +128,24 @@ class Bot:
         return best
 
     # ------------------------------------------------------------ navigation
+    def cube_on_route(self, obs, pos, destination, direct_distance):
+        """Take a short walkable detour while building toward the first upgrades."""
+        best = destination
+        best_length = direct_distance + 5.0
+        zone = obs["zone"]
+        for cube in obs.get("cubes", []):
+            point = cube["pos"]
+            first_leg = d2(pos, point)
+            if first_leg > 12 or abs(point[2] - self.grid.ground_at(*point[:2])) >= 3:
+                continue
+            length = first_leg + d2(point, destination)
+            if length >= best_length or d2(point, zone["next_center"]) >= zone["next_radius"]:
+                continue
+            if self.grid.los(*pos[:2], *point[:2]) and self.grid.los(*point[:2], *destination):
+                best = point[:2]
+                best_length = length
+        return best
+
     def nav_dir(self, pos, goal, now):
         g = self.grid
         if goal is None:
@@ -301,6 +319,8 @@ class Bot:
                     take = p["id"]
                     if slot1 is not None:
                         act["drop"] = 1
+                elif me["cubes"] < 3 and npc_target is None and now - self.last_hit_time > 3:
+                    goal = self.cube_on_route(obs, pos, goal, dd)
             else:
                 cubes = [c for c in obs.get("cubes", []) if d2(c["pos"], pos) < 45 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
                 if cubes:
