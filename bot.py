@@ -20,7 +20,7 @@ UPGRADE_PRIORITY = [
     "capacitor", "reactor", "jets", "gun_velocity", "laser_pierce", "mortar_reload",
     "mortar_velocity", "mortar_splash",
 ]
-GOOD_WEAPONS = {"lightning": 3, "laser": 2}
+GOOD_WEAPONS = {"laser": 3, "lightning": 2}
 
 
 def wrap(a):
@@ -272,12 +272,12 @@ class Bot:
             hs = self.hide_spot(obs, pos, zone_tgt)
             if hs is not None:
                 goal = hs if d2(hs, pos) > 2.5 else None
-        quiet = urg < 0.55 and not late
+        quiet = False
         take = None
         threats_near = [m for m in mechs if m["_d"] < 90]
 
         # loot: weapons, cubes, crates (only when no threats around)
-        if target is None and not threats_near and urg < 0.9:
+        if target is None and not threats_near and urg < 0.95:
             slot1 = me["weapons"][1]
             have = {w["kind"] for w in me["weapons"] if w}
             cand = []
@@ -291,7 +291,8 @@ class Bot:
                 if p["pos"][2] > self.grid.ground_at(p["pos"][0], p["pos"][1]) + 3:
                     continue  # on a roof
                 dd = d2(p["pos"], pos)
-                if dd < 80:
+                reach = 150 if (now < 70 and not mechs) else 70
+                if dd < reach:
                     cand.append((dd - 20 * GOOD_WEAPONS[p["kind"]], dd, p))
             if cand:
                 cand.sort(key=lambda c: c[0])
@@ -397,13 +398,17 @@ class Bot:
                 m0 = mechs[0]
                 by = math.atan2(m0["pos"][1] - pos[1], m0["pos"][0] - pos[0])
                 aim = [by, 0.0]
-                if m0["_d"] < 130:
-                    awx, awy = -math.cos(by), -math.sin(by)
-                    if move is None:
-                        move = (awx * 0.7, awy * 0.7)
-                    else:
-                        move = (move[0] + 0.6 * awx, move[1] + 0.6 * awy)
-                    quiet = False
+                if m0["_d"] < 220 and self.grid.sight(pos[0], pos[1], pos[2] + 8, m0["pos"][0], m0["pos"][1], m0["pos"][2] + 8):
+                    if getattr(self, "hidefrom_t", -99) < now - 2.0:
+                        pref = [pos[0] - 25 * math.cos(by), pos[1] - 25 * math.sin(by)]
+                        cz = obs["zone"]
+                        cc_, cr_ = cz["center"], cz["radius"]
+                        found = self.grid.best_cover(pos[0], pos[1], 30, pref,
+                                                     lambda x, y: (x - cc_[0]) ** 2 + (y - cc_[1]) ** 2 <= (cr_ - 5) ** 2
+                                                     and not self.grid.sight(m0["pos"][0], m0["pos"][1], m0["pos"][2] + 8, x, y, self.grid.ground_at(x, y) + 5))
+                        self.hidefrom = [found[1], found[2]] if found else pref
+                        self.hidefrom_t = now
+                    move = self.nav_dir(pos, self.hidefrom, now) or move
             elif self.last_hit_bearing is not None and now - self.last_hit_time < 3:
                 aim = [self.last_hit_bearing, 0.0]
             elif self.heard and now - self.heard[0] < 2.5:
@@ -429,6 +434,17 @@ class Bot:
                     aim = [self.scan_yaw, 0.0]
             if target is None and me["weapons"][0] and me["weapons"][0].get("ammo", 99) < me["weapons"][0]["stats"].get("mag", 12) * 0.5 and not mechs:
                 act["reload"] = True
+
+        # an enemy laser charging at us: sidestep hard off its line before it lets go
+        for m in mechs:
+            if m.get("charging") and m["_d"] < 290:
+                to_me = math.atan2(pos[1] - m["pos"][1], pos[0] - m["pos"][0])
+                if abs(wrap(m["aim"][0] - to_me)) < math.atan2(6.0, max(m["_d"], 1)) + 0.05:
+                    side = 1 if (self.slot + int(now)) % 2 else -1
+                    px, py = math.cos(to_me + side * math.pi / 2), math.sin(to_me + side * math.pi / 2)
+                    move = (px, py)
+                    boost = me["energy"] > 10
+                    break
 
         # damage from behind with no visible shooter: turn to face it
         if foe is None and self.last_hit_bearing is not None and now - self.last_hit_time < 1.5:
