@@ -246,7 +246,7 @@ class Bot:
         mw = self.cfg["weapons"].get("mortar", {})
         g = mw.get("gravity", 22)
         size = 1 + 0.05 * me.get("cubes", 0)
-        reach = mw.get("splash_radius", 7) + self.cfg["mech"]["radius"] * size + 2.5
+        reach = mw.get("splash_radius", 7) + self.cfg["mech"]["radius"] * size + 0.0
         best = None
         for p in obs.get("projectiles", []):
             if p.get("kind") != "mortar":
@@ -255,7 +255,7 @@ class Bot:
             vx, vy, vz = p["vel"]
             drop = max(z - pos[2], 0.0)
             t = (vz + math.sqrt(vz * vz + 2 * g * drop)) / g
-            if t > 4.5:
+            if t > 3.5:
                 continue
             lx, ly = x + vx * t, y + vy * t
             px, py = pos[0] + me["vel"][0] * t, pos[1] + me["vel"][1] * t
