@@ -57,6 +57,7 @@ class Bot:
         self.last_hit_bearing = None
         self.last_hit_time = -99
         self.strafe = 1 if self.slot % 2 else -1
+        self.reward_drop = None
         self.strafe_t = 0
         self.scan_yaw = None
         self.heard = None  # (time, bearing)
@@ -147,13 +148,19 @@ class Bot:
         pickups = [item for item, _, kind in self.loot_memory.values() if kind == "pickups"]
         cubes = [item for item, _, kind in self.loot_memory.values() if kind == "cubes"]
         items = []
+        slot0 = obs["self"]["weapons"][0]
+        held = {w["kind"] for w in obs["self"]["weapons"] if w}
         for p in pickups:
             value = GOOD_WEAPONS.get(p["kind"], 0) - rank
-            if value > 0 and self.blacklist.get(p["id"], 0) <= obs["t"]:
-                items.append((p, value + (2 if rank == 0 else 0), True))
+            dslot = 1
+            if (rank > 0 and slot0 and slot0["kind"] == "gun" and p["kind"] in GOOD_WEAPONS
+                    and p["kind"] not in held):
+                value, dslot = max(value, 1.5), 0  # carry two good weapons: leave the gun
+            if value > 0 and p["kind"] not in held and self.blacklist.get(p["id"], 0) <= obs["t"]:
+                items.append((p, value + (2 if rank == 0 else 0), dslot))
         for c in cubes:
             stack = sum(d2(c["pos"], o["pos"]) <= 8 for o in cubes)
-            items.append((c, 1 + min(stack, 5), False))
+            items.append((c, 1 + min(stack, 5), None))
         best = None
         best_value = 0
         for item, value, equip in items:
@@ -164,7 +171,8 @@ class Bot:
             score = value / (10 + distance)
             if score > best_value and self.grid.los(pos[0], pos[1], *xy[:2]):
                 best_value = score
-                best = (xy, item["id"] if equip else None, distance)
+                best = (xy, item["id"] if equip is not None else None, distance)
+                self.reward_drop = equip
         return best
 
     def nav_dir(self, pos, goal, now):
@@ -365,20 +373,24 @@ class Bot:
                     continue
                 if p["kind"] not in GOOD_WEAPONS:
                     continue
-                if slot1 is not None and GOOD_WEAPONS.get(slot1["kind"], 0) >= GOOD_WEAPONS[p["kind"]]:
+                dual = (slot1 is not None and GOOD_WEAPONS.get(slot1["kind"], 0) > 0 and me["weapons"][0]
+                        and me["weapons"][0]["kind"] == "gun" and p["kind"] != slot1["kind"])
+                if slot1 is not None and GOOD_WEAPONS.get(slot1["kind"], 0) >= GOOD_WEAPONS[p["kind"]] and not dual:
                     continue
                 if p["pos"][2] > self.grid.ground_at(p["pos"][0], p["pos"][1]) + 3:
                     continue  # on a roof
                 dd = d2(p["pos"], pos)
                 if dd < (150 if p["kind"] == "lightning" or slot1 is None else 100):
-                    cand.append((dd - 20 * GOOD_WEAPONS[p["kind"]], dd, p))
+                    cand.append((dd - 20 * GOOD_WEAPONS[p["kind"]], dd, p, 0 if dual else 1))
             if cand:
                 cand.sort(key=lambda c: c[0])
-                _, dd, p = cand[0]
+                _, dd, p, dslot = cand[0]
                 goal = p["pos"][:2]
                 if dd < self.reach * 0.9:
                     take = p["id"]
-                    if slot1 is not None:
+                    if dslot == 0:
+                        act["drop"] = 0
+                    elif slot1 is not None:
                         act["drop"] = 1
             else:
                 cubes = [c for c in obs.get("cubes", []) if d2(c["pos"], pos) < 45 and c["pos"][2] < self.grid.ground_at(c["pos"][0], c["pos"][1]) + 3]
@@ -413,34 +425,36 @@ class Bot:
             ay, ap = me["aim"]
             err = abs(wrap(ay - yaw))
             tol = math.atan2(2.2 if foe["kind"] == "mech" else 1.4, max(hd, 1)) + 0.015
-            gun = me["weapons"][0]
-            if gun and gun["kind"] == "gun" and err < tol + 0.01 and fd < gun["stats"]["range"] * 0.95 and gun.get("reload", 0) == 0:
-                fire[0] = True
-            w1 = me["weapons"][1]
-            if w1:
-                if w1["kind"] == "lightning":
-                    rng = w1["stats"].get("range", 45)
-                    cone = math.radians(w1["stats"].get("cone_deg", 30)) / 2
+            for wi, w in enumerate(me["weapons"]):
+                if not w:
+                    continue
+                if w["kind"] == "gun":
+                    if err < tol + 0.01 and fd < w["stats"]["range"] * 0.95 and w.get("reload", 0) == 0:
+                        fire[wi] = True
+                elif w["kind"] == "lightning":
+                    rng = w["stats"].get("range", 45)
+                    cone = math.radians(w["stats"].get("cone_deg", 30)) / 2
                     if fd < rng * 0.95 and err < cone * 0.8 and me["energy"] > 6:
-                        fire[1] = True
-                elif w1["kind"] == "laser":
+                        fire[wi] = True
+                elif w["kind"] == "laser":
                     # hold to charge, let go (fire=False) to shoot along the current aim
-                    full = w1["stats"].get("charge", 0.75)
-                    charge = w1.get("charge", 0) or 0
+                    full = w["stats"].get("charge", 0.75)
+                    charge = w.get("charge", 0) or 0
                     lyaw = math.atan2(foe["pos"][1] - pos[1], foe["pos"][0] - pos[0])
                     lp = math.atan2(foe["pos"][2] + zoff - (pos[2] + me["stats"].get("muzzle_height", 7)), max(fd, 1))
-                    if fd < 260 and w1.get("cooldown", 0) <= 0:
+                    if fd < 260 and w.get("cooldown", 0) <= 0:
                         aim = [lyaw, lp]  # hitscan: no lead
                         on_target = abs(wrap(ay - lyaw)) <= tol
-                        fire[1] = not (charge >= full - 0.02 and on_target)
-                elif w1["kind"] == "mortar" and 40 < fd < 220 and w1.get("cooldown", 0) <= 0:
-                    v = w1["stats"].get("speed", 72)
-                    gr = w1["stats"].get("gravity", 22)
-                    s = gr * fd / (v * v)
-                    if s < 1:
-                        aim = [aim[0], 0.5 * math.asin(s)]
+                        fire[wi] = not (charge >= full - 0.02 and on_target)
+                elif w["kind"] == "mortar" and 40 < fd < 220 and w.get("cooldown", 0) <= 0:
+                    v = w["stats"].get("speed", 72)
+                    gr = w["stats"].get("gravity", 22)
+                    s_ = gr * fd / (v * v)
+                    if s_ < 1:
+                        aim = [aim[0], 0.5 * math.asin(s_)]
                         if abs(wrap(ay - aim[0])) < 0.05:
-                            fire[1] = True
+                            fire[wi] = True
+            w1 = next((w for w in me["weapons"] if w and w["kind"] == "lightning"), None)
             # movement in a fight: strafe across the line of fire, back off when losing
             by = math.atan2(foe["pos"][1] - pos[1], foe["pos"][0] - pos[0])
             if now - self.strafe_t > 1.3 + random.random():
@@ -496,8 +510,16 @@ class Bot:
                 ay = math.atan2(c["pos"][1] - pos[1], c["pos"][0] - pos[0])
                 ap = math.atan2(c["pos"][2] + 1.2 - (pos[2] + 7), max(cd, 1))
                 aim = [ay, ap]
-                if cd < 60 and abs(wrap(me["aim"][0] - ay)) < 0.04 and me["weapons"][0] and me["weapons"][0].get("reload", 0) == 0:
-                    fire[0] = True
+                aimed = abs(wrap(me["aim"][0] - ay)) < 0.04
+                for wi, w in enumerate(me["weapons"]):
+                    if not w:
+                        continue
+                    if w["kind"] == "gun" and cd < 60 and aimed and w.get("reload", 0) == 0:
+                        fire[wi] = True
+                    elif w["kind"] == "lightning" and cd < 40 and abs(wrap(me["aim"][0] - ay)) < 0.2 and me["energy"] > 30:
+                        fire[wi] = True
+                    elif w["kind"] == "laser" and cd < 120 and w.get("cooldown", 0) <= 0 and not any(x and x["kind"] == "gun" for x in me["weapons"]):
+                        fire[wi] = not ((w.get("charge", 0) or 0) >= w["stats"].get("charge", 0.75) - 0.02 and aimed)
                 if not any(cc["id"] == c["id"] for cc in obs.get("crates", [])):
                     self.crate_target = None
             else:
@@ -509,7 +531,8 @@ class Bot:
                         self.scan_yaw = me["aim"][0]
                     self.scan_yaw = wrap(self.scan_yaw + 0.35)
                     aim = [self.scan_yaw, 0.0]
-            if target is None and me["weapons"][0] and me["weapons"][0].get("ammo", 99) < me["weapons"][0]["stats"].get("mag", 12) * 0.5 and not mechs:
+            gw = next((w for w in me["weapons"] if w and w["kind"] == "gun"), None)
+            if target is None and gw and gw.get("ammo", 99) < gw["stats"].get("mag", 12) * 0.5 and not mechs:
                 act["reload"] = True
 
         # damage from behind with no visible shooter: turn to face it
@@ -525,7 +548,9 @@ class Bot:
                 quiet = False
             if equip_id is not None and distance < self.reach * 0.9:
                 act["take"] = equip_id
-                if me["weapons"][1]:
+                if self.reward_drop == 0:
+                    act["drop"] = 0
+                elif me["weapons"][1]:
                     act["drop"] = 1
 
         # --- mortar shells: get out of the blast first
@@ -534,8 +559,9 @@ class Bot:
             move = dodge
             boost = me["energy"] > 8
             quiet = False
-            if me["weapons"][1] and me["weapons"][1]["kind"] == "laser" and (me["weapons"][1].get("charge") or 0) > 0:
-                fire[1] = False  # charging halves our speed
+            for wi, w in enumerate(me["weapons"]):
+                if w and w["kind"] == "laser" and (w.get("charge") or 0) > 0:
+                    fire[wi] = False  # charging halves our speed
 
         # --- bullets: step sideways out of the line of an incoming stream
         elif obs.get("projectiles"):
