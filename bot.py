@@ -57,6 +57,8 @@ class Bot:
         self.last_hit_bearing = None
         self.last_hit_time = -99
         self.strafe = 1 if self.slot % 2 else -1
+        self.ear_t = -99.0
+        self.ear_dir = None
         self.strafe_t = 0
         self.scan_yaw = None
         self.heard = None  # (time, bearing)
@@ -303,6 +305,13 @@ class Bot:
             elif ev["type"] == "take_failed":
                 self.blacklist[ev["id"]] = now + 20
         for s in obs.get("sounds", []):
+            if s["kind"] == "mortar" and now - s.get("age", 0) > self.ear_t + 0.6:
+                # a shell was launched, almost surely at us: be somewhere else when it lands
+                self.ear_t = now - s.get("age", 0)
+                b = s["bearing"] + (math.pi / 2 if random.random() < 0.5 else -math.pi / 2)
+                if not self.grid.free_xy(pos[0] + 6 * math.cos(b), pos[1] + 6 * math.sin(b)):
+                    b += math.pi
+                self.ear_dir = (math.cos(b), math.sin(b))
             if s["kind"] in ("gun", "laser", "lightning", "mortar", "laser_charge", "step", "boost", "jet") and s["dist"] != "far":
                 self.heard = (now, s["bearing"])
         self.attackers = {k: v for k, v in self.attackers.items() if now - v[0] < 6}
@@ -536,6 +545,12 @@ class Bot:
             quiet = False
             if me["weapons"][1] and me["weapons"][1]["kind"] == "laser" and (me["weapons"][1].get("charge") or 0) > 0:
                 fire[1] = False  # charging halves our speed
+
+        elif self.ear_dir is not None and now - self.ear_t < 1.3 and supply is None:
+            base = move if move is not None else (0.0, 0.0)
+            move = (0.35 * base[0] + self.ear_dir[0], 0.35 * base[1] + self.ear_dir[1])
+            boost = boost or me["energy"] > 35
+            quiet = False
 
         # --- stuck handling
         hv = math.hypot(me["vel"][0], me["vel"][1])
