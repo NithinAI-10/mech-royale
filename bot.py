@@ -18,9 +18,9 @@ UPGRADE_PRIORITY = [
     "mortar_splash", "mortar_velocity",
 ]
 GOOD_WEAPONS = {"lightning": 3, "laser": 2}
-FARM_RANGE = 80  # m: drones worth walking to
-FARM_HP = 0.75  # farm crates and drones only above this health fraction
-REST_BELOW = 0.75  # stop and regenerate below this when nothing is in view
+FARM_RANGE = 120  # m: drones worth walking to
+FARM_HP = 0.6  # farm crates and drones only above this health fraction
+REST_BELOW = 0.6  # stop and regenerate below this when nothing is in view
 
 
 def wrap(a):
