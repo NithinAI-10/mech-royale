@@ -17,7 +17,7 @@ UPGRADE_PRIORITY = [
     "reactor", "laser_pierce", "lightning_chain", "capacitor", "jets", "mortar_reload",
     "mortar_splash", "mortar_velocity",
 ]
-GOOD_WEAPONS = {"lightning": 3, "laser": 2}
+GOOD_WEAPONS = {"laser": 3, "lightning": 2}
 FARM_RANGE = 120  # m: drones worth walking to
 FARM_HP = 0.6  # farm crates and drones only above this health fraction
 REST_BELOW = 0.6  # stop and regenerate below this when nothing is in view
@@ -159,7 +159,7 @@ class Bot:
         for item, value, equip in items:
             xy = item["pos"]
             distance = d2(pos, xy)
-            if distance > 95 or abs(xy[2] - self.grid.ground_at(*xy[:2])) > 3:
+            if distance > (160 if not equip else 95) or abs(xy[2] - self.grid.ground_at(*xy[:2])) > 3:
                 continue
             score = value / (10 + distance)
             if score > best_value and self.grid.los(pos[0], pos[1], *xy[:2]):
@@ -406,7 +406,7 @@ class Bot:
                             fire[1] = True
             # movement in a fight: strafe across the line of fire, back off when losing
             by = math.atan2(foe["pos"][1] - pos[1], foe["pos"][0] - pos[0])
-            if now - self.strafe_t > 1.3 + random.random():
+            if now - self.strafe_t > 0.55 + 0.7 * random.random():
                 self.strafe = -self.strafe
                 self.strafe_t = now
             sx, sy = math.cos(by + self.strafe * math.pi / 2), math.sin(by + self.strafe * math.pi / 2)
@@ -421,12 +421,12 @@ class Bot:
                 mx_, my_ = 0.6 * math.cos(by) + 0.5 * sx, 0.6 * math.sin(by) + 0.5 * sy
             else:
                 mx_, my_ = sx, sy
-                if fd < 18:
-                    mx_ -= 0.5 * math.cos(by)
-                    my_ -= 0.5 * math.sin(by)
+                if fd < 60:
+                    mx_ -= 0.7 * math.cos(by)
+                    my_ -= 0.7 * math.sin(by)
             # Approach the game reward before the avatar despawns; the
             # two guaranteed bonus cubes appear at its last position.
-            if foe["kind"] == "mech" and fd > 9:
+            if foe["kind"] == "mech" and fd > 130:
                 approach = self.nav_dir(pos, foe["pos"][:2], now)
                 if approach:
                     boost = me["energy"] > 50 and fd > 35
