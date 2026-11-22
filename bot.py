@@ -128,6 +128,24 @@ class Bot:
             best = drop
         return best
 
+    def drop_rush(self, obs, pos):
+        """Supply drop worth heading for now: 3 cubes, full HP and energy."""
+        best = None
+        best_t = 40.0
+        speed = max(self.walk, 1.0)
+        for drop in obs.get("drops", []):
+            if drop["holder"] not in (None, self.slot):
+                continue
+            xy = drop["pos"][:2]
+            dist = d2(pos, xy)
+            travel = max(0.0, dist - 3.0) / speed
+            remaining = drop["capture_s"] - (drop["progress"] if drop["holder"] == self.slot else 0)
+            finish = max(drop["lands_in"], travel) + remaining
+            if finish < best_t:
+                best_t = finish
+                best = (drop, dist, travel)
+        return best
+
     # ------------------------------------------------------------ navigation
     def reward_goal(self, obs, pos):
         """Value the reachable cube stacks and equipment using travel time."""
@@ -527,6 +545,19 @@ class Bot:
                 act["take"] = equip_id
                 if me["weapons"][1]:
                     act["drop"] = 1
+
+        # --- supply drops: full HP and 3 cubes are worth a detour, even mid-fight
+        rush = self.drop_rush(obs, pos) if me["in_zone"] or urg < 0.9 else None
+        if rush is not None:
+            drop, ddist, dtravel = rush
+            inner = drop["radius"] * 0.55
+            if foe is None or hp_frac < 0.8 or ddist < 70:
+                if ddist > inner or foe is None:
+                    dmove = self.nav_dir(pos, drop["pos"][:2], now) if ddist > 2.5 else None
+                    move = dmove
+                    if dmove is not None and ddist > 40 and me["energy"] > 35 and dtravel > drop["lands_in"] - 3:
+                        boost = True
+                    quiet = False
 
         # --- mortar shells: get out of the blast first
         dodge = self.shell_dodge(obs, me, pos)
