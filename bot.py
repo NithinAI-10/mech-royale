@@ -414,7 +414,10 @@ class Bot:
             err = abs(wrap(ay - yaw))
             tol = math.atan2(2.2 if foe["kind"] == "mech" else 1.4, max(hd, 1)) + 0.015
             gun = me["weapons"][0]
-            if gun and gun["kind"] == "gun" and err < tol + 0.01 and fd < gun["stats"]["range"] * 0.95 and gun.get("reload", 0) == 0:
+            gun_reach = gun["stats"]["range"] * 0.95 if gun else 0
+            if foe["kind"] == "mech":
+                gun_reach = min(gun_reach, 130)  # hold fire: long shots mostly miss, empty the mag, and stop regen
+            if gun and gun["kind"] == "gun" and err < tol + 0.01 and fd < gun_reach and gun.get("reload", 0) == 0:
                 fire[0] = True
             w1 = me["weapons"][1]
             if w1:
