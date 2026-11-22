@@ -57,6 +57,7 @@ class Bot:
         self.last_hit_bearing = None
         self.last_hit_time = -99
         self.strafe = 1 if self.slot % 2 else -1
+        self.wander_dir = 1
         self.strafe_t = 0
         self.scan_yaw = None
         self.heard = None  # (time, bearing)
@@ -536,6 +537,16 @@ class Bot:
             quiet = False
             if me["weapons"][1] and me["weapons"][1]["kind"] == "laser" and (me["weapons"][1].get("charge") or 0) > 0:
                 fire[1] = False  # charging halves our speed
+
+        # --- never stand still: house bots share vision and lob mortars at a parked mech
+        if supply is None and (move is None or math.hypot(*move) < 0.2):
+            ang = now * 1.2 * self.wander_dir + self.slot
+            wx, wy = math.cos(ang + math.pi / 2), math.sin(ang + math.pi / 2)
+            if not self.grid.free_xy(pos[0] + wx * 5, pos[1] + wy * 5):
+                self.wander_dir = -self.wander_dir
+                wx, wy = -wx, -wy
+            move = (wx, wy)
+            quiet = False
 
         # --- stuck handling
         hv = math.hypot(me["vel"][0], me["vel"][1])
