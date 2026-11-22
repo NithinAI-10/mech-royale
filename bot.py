@@ -538,6 +538,35 @@ class Bot:
             if me["weapons"][1] and me["weapons"][1]["kind"] == "laser" and (me["weapons"][1].get("charge") or 0) > 0:
                 fire[1] = False  # charging halves our speed
 
+        # --- bullets: step sideways out of the line of an incoming stream
+        elif obs.get("projectiles"):
+            hit_r = self.cfg["mech"]["radius"] * (1 + 0.05 * me.get("cubes", 0)) + 1.2
+            jk = None
+            for p in obs["projectiles"]:
+                if p.get("kind") == "mortar":
+                    continue
+                vx, vy, vz = p["vel"]
+                v2 = vx * vx + vy * vy
+                if v2 < 100:
+                    continue
+                rx, ry = pos[0] - p["pos"][0], pos[1] - p["pos"][1]
+                tc = (rx * vx + ry * vy) / v2
+                if not 0 < tc < 0.7:
+                    continue
+                cx, cy = rx - vx * tc, ry - vy * tc
+                if math.hypot(cx, cy) < hit_r and (jk is None or tc < jk[0]):
+                    jk = (tc, cx, cy, vx, vy)
+            if jk is not None:
+                tc, cx, cy, vx, vy = jk
+                n = math.hypot(vx, vy)
+                px_, py_ = -vy / n, vx / n
+                if px_ * cx + py_ * cy < 0:
+                    px_, py_ = -px_, -py_
+                if self.grid.free_xy(pos[0] + px_ * 4, pos[1] + py_ * 4):
+                    base = move if move is not None else (0.0, 0.0)
+                    move = (0.35 * base[0] + px_, 0.35 * base[1] + py_)
+                    quiet = False
+
         # --- never stand still: house bots share vision and lob mortars at a parked mech
         if supply is None and (move is None or math.hypot(*move) < 0.2):
             ang = now * 1.2 * self.wander_dir + self.slot
