@@ -240,6 +240,43 @@ class Bot:
         pitch = math.atan2(pz - oz, math.hypot(px - ox, py - oy))
         return yaw, pitch, math.hypot(px - ox, py - oy)
 
+    # ------------------------------------------------------------ dodging
+    def shell_dodge(self, obs, me, pos):
+        """Run out of the blast of a mortar shell that would land on us (shells are listed with pos and vel)."""
+        mw = self.cfg["weapons"].get("mortar", {})
+        g = mw.get("gravity", 22)
+        size = 1 + 0.05 * me.get("cubes", 0)
+        reach = mw.get("splash_radius", 7) + self.cfg["mech"]["radius"] * size + 2.5
+        best = None
+        for p in obs.get("projectiles", []):
+            if p.get("kind") != "mortar":
+                continue
+            x, y, z = p["pos"]
+            vx, vy, vz = p["vel"]
+            drop = max(z - pos[2], 0.0)
+            t = (vz + math.sqrt(vz * vz + 2 * g * drop)) / g
+            if t > 4.5:
+                continue
+            lx, ly = x + vx * t, y + vy * t
+            px, py = pos[0] + me["vel"][0] * t, pos[1] + me["vel"][1] * t
+            if math.hypot(px - lx, py - ly) < reach and (best is None or t < best[0]):
+                best = (t, lx, ly, vx, vy)
+        if best is None:
+            return None
+        t, lx, ly, vx, vy = best
+        dx, dy = pos[0] - lx, pos[1] - ly
+        n = math.hypot(dx, dy)
+        if n < 1.0:
+            dx, dy = -vy, vx
+            n = math.hypot(dx, dy) or 1.0
+        dx, dy = dx / n, dy / n
+        for turn in (0.0, 0.6, -0.6, 1.2, -1.2, 1.57, -1.57):
+            c, s = math.cos(turn), math.sin(turn)
+            ux, uy = dx * c - dy * s, dx * s + dy * c
+            if self.grid.free_xy(pos[0] + ux * 5, pos[1] + uy * 5):
+                return (ux, uy)
+        return (dx, dy)
+
     # ------------------------------------------------------------ main
     def act(self, obs):
         me = obs["self"]
@@ -490,6 +527,15 @@ class Bot:
                 act["take"] = equip_id
                 if me["weapons"][1]:
                     act["drop"] = 1
+
+        # --- mortar shells: get out of the blast first
+        dodge = self.shell_dodge(obs, me, pos)
+        if dodge is not None:
+            move = dodge
+            boost = me["energy"] > 8
+            quiet = False
+            if me["weapons"][1] and me["weapons"][1]["kind"] == "laser" and (me["weapons"][1].get("charge") or 0) > 0:
+                fire[1] = False  # charging halves our speed
 
         # --- stuck handling
         hv = math.hypot(me["vel"][0], me["vel"][1])
